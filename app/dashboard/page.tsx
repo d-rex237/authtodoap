@@ -8,8 +8,8 @@ import {
 } from "@/hooks/use-todos";
 import { useAlarm } from "@/hooks/use-alarm";
 import { DueCountdown } from "@/components/due-countdown";
-import { useUser } from "@clerk/nextjs";
-import { useCallback, useMemo, useState } from "react";
+import { useUser, SignOutButton } from "@clerk/nextjs";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 
 const categories: Record<string, string> = {
   Work: "bg-purple-500/10 text-purple-300 border-purple-500/20",
@@ -56,15 +56,117 @@ function formatDueDate(date: Date | string | null) {
   return { formatted, isOverdue, isToday };
 }
 
-export default function TodoPage() {
+// ── Avatar Dropdown ──────────────────────────────────────────────────────────
+function AvatarDropdown() {
   const { user } = useUser();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
 
+  // Compute position from button so fixed dropdown aligns correctly
+  useEffect(() => {
+    if (open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
+  }, [open]);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const initials = user
+    ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase()
+    : "?";
+
+  const fullName =
+    user?.firstName || user?.lastName
+      ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
+      : "User";
+
+  const email = user?.primaryEmailAddress?.emailAddress ?? "";
+
+  return (
+    <div ref={ref}>
+      {/* Avatar button */}
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen((v) => !v)}
+        className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold transition z-1999 ring-1 ${
+          open
+            ? "bg-purple-500/30 text-purple-200 ring-purple-400/50"
+            : "bg-purple-500/20 text-purple-300 ring-purple-500/30 hover:bg-purple-500/30 hover:text-purple-200"
+        }`}
+        aria-label="Account menu"
+        aria-expanded={open}
+      >
+        {initials}
+      </button>
+
+      {/* Dropdown — fixed so it escapes all overflow-hidden parents */}
+      {open && (
+        <div
+          style={{ top: dropdownPos.top, right: dropdownPos.right }}
+          className="fixed z-[9999] w-64 overflow-hidden rounded-2xl border border-zinc-700/60 bg-zinc-900 shadow-2xl shadow-black/60 ring-1 ring-white/5"
+        >
+          {/* User info */}
+          <div className="border-b border-zinc-800/60 px-4 py-4">
+            {/* <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white shadow-lg shadow-purple-500/20">
+              {initials}
+            </div> */}
+            <p className="truncate text-sm font-semibold text-zinc-100">
+              {fullName}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-zinc-500">{email}</p>
+          </div>
+
+          {/* Actions */}
+          {/* <div className="p-2">
+            <SignOutButton redirectUrl="/">
+              <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-400 transition hover:bg-red-500/10 hover:text-red-400">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                Sign out
+              </button>
+            </SignOutButton>
+          </div> */}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
+export default function TodoPage() {
   const { data: todos = [], isLoading } = useGetTodos();
 
   const { mutate: createTodo, isPending: isCreating } = useCreateTodo();
-
   const { mutate: deleteTodo, isPending: isDeleting } = useDeleteTodo();
-
   const { mutate: toggleTodo, isPending: isToggling } = useToggleTodo();
 
   const { triggerAlarm, stopAlarm, firingIds } = useAlarm();
@@ -84,7 +186,6 @@ export default function TodoPage() {
   const handleAlarm = useCallback(
     (id: string, text: string) => {
       if (dismissedAlarms.has(id)) return;
-
       triggerAlarm(id, text);
     },
     [triggerAlarm, dismissedAlarms],
@@ -92,7 +193,6 @@ export default function TodoPage() {
 
   const handleDismiss = (id: string) => {
     stopAlarm(id);
-
     setDismissedAlarms((prev) => new Set([...prev, id]));
   };
 
@@ -100,12 +200,7 @@ export default function TodoPage() {
     if (!task.trim()) return;
 
     createTodo(
-      {
-        text: task,
-        priority,
-        category,
-        dueAt: dueAt || undefined,
-      },
+      { text: task, priority, category, dueAt: dueAt || undefined },
       {
         onSuccess: () => {
           setTask("");
@@ -134,11 +229,9 @@ export default function TodoPage() {
   }, [todos, filter, search]);
 
   const completedCount = todos.filter((t) => t.completed).length;
-
   const progress = todos.length
     ? Math.round((completedCount / todos.length) * 100)
     : 0;
-
   const overdueCount = todos.filter(
     (t) => t.dueAt && new Date(t.dueAt) < new Date() && !t.completed,
   ).length;
@@ -151,20 +244,15 @@ export default function TodoPage() {
       firingIds.current.has(t.id),
   );
 
-  const initials = user
-    ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase()
-    : "?";
-
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       <div className="flex h-screen overflow-hidden">
-        {/* Sidebar */}
+        {/* ── Sidebar ── */}
         <aside className="hidden w-72 flex-col overflow-y-auto border-r border-zinc-800/60 bg-zinc-950 p-6 lg:flex">
           <div className="mb-10 flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-600">
               <span className="text-sm font-bold">F</span>
             </div>
-
             <span className="text-xl font-bold tracking-tight">focus.</span>
           </div>
 
@@ -176,7 +264,6 @@ export default function TodoPage() {
 
             <div className="mt-3 flex items-end justify-between">
               <h2 className="text-5xl font-bold tracking-tight">{progress}%</h2>
-
               <span className="mb-1 text-xs text-zinc-500">
                 {completedCount}/{todos.length}
               </span>
@@ -203,21 +290,9 @@ export default function TodoPage() {
             </p>
 
             {[
-              {
-                key: "all",
-                label: "All Tasks",
-                icon: "⊞",
-              },
-              {
-                key: "active",
-                label: "Active",
-                icon: "◎",
-              },
-              {
-                key: "completed",
-                label: "Completed",
-                icon: "✓",
-              },
+              { key: "all", label: "All Tasks", icon: "⊞" },
+              { key: "active", label: "Active", icon: "◎" },
+              { key: "completed", label: "Completed", icon: "✓" },
             ].map(({ key, label, icon }) => (
               <button
                 key={key}
@@ -230,10 +305,8 @@ export default function TodoPage() {
               >
                 <span className="flex items-center gap-2.5">
                   <span className="text-base">{icon}</span>
-
                   {label}
                 </span>
-
                 <span
                   className={`rounded-md px-1.5 py-0.5 text-xs ${
                     filter === key
@@ -256,7 +329,6 @@ export default function TodoPage() {
             <p className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-600">
               Categories
             </p>
-
             <div className="space-y-2">
               {Object.keys(categories).map((item) => (
                 <div
@@ -267,10 +339,8 @@ export default function TodoPage() {
                     <span
                       className={`h-2 w-2 rounded-full ${categoryDots[item]}`}
                     />
-
                     {item}
                   </div>
-
                   <span className="text-xs text-zinc-600">
                     {todos.filter((t) => t.category === item).length}
                   </span>
@@ -280,7 +350,7 @@ export default function TodoPage() {
           </div>
         </aside>
 
-        {/* Main */}
+        {/* ── Main ── */}
         <main className="flex flex-1 flex-col overflow-hidden">
           {/* Header */}
           <header className="flex items-center justify-between border-b border-zinc-800/60 bg-zinc-950/80 px-8 py-4 backdrop-blur">
@@ -292,7 +362,6 @@ export default function TodoPage() {
                   day: "numeric",
                 })}
               </p>
-
               <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
             </div>
 
@@ -306,13 +375,35 @@ export default function TodoPage() {
                 }`}
               >
                 <span className="text-base">{showForm ? "✕" : "+"}</span>
-
                 {showForm ? "Cancel" : "New Task"}
               </button>
-
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-500/20 text-xs font-bold text-purple-300 ring-1 ring-purple-500/30">
-                {initials}
+              {/* Actions */}
+              <div className="p-2">
+                <SignOutButton redirectUrl="/">
+                  <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-400 transition hover:bg-red-500/10 hover:text-red-400">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Sign out
+                  </button>
+                </SignOutButton>
               </div>
+
+              {/* Avatar dropdown */}
+              <AvatarDropdown />
             </div>
           </header>
 
@@ -328,18 +419,15 @@ export default function TodoPage() {
                     <span className="animate-ping text-lg text-red-400">
                       ⏰
                     </span>
-
                     <div>
                       <p className="text-sm font-semibold text-red-300">
                         "{todo.text}" is due now!
                       </p>
-
                       <p className="text-xs text-red-600">
                         Alarm stops in 30 seconds
                       </p>
                     </div>
                   </div>
-
                   <button
                     onClick={() => handleDismiss(todo.id)}
                     className="rounded-xl border border-red-800/60 bg-red-900/40 px-4 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-900/70"
@@ -358,7 +446,6 @@ export default function TodoPage() {
                 <p className="mb-4 text-sm font-medium text-zinc-400">
                   New Task
                 </p>
-
                 <div className="space-y-3">
                   <input
                     type="text"
@@ -373,32 +460,26 @@ export default function TodoPage() {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-zinc-600">Category</label>
-
                       <select
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
                         className="rounded-xl border border-zinc-700/60 bg-black/60 px-3 py-2.5 text-sm outline-none focus:border-purple-500"
                       >
                         <option value="Work">Work</option>
-
                         <option value="Design">Design</option>
-
                         <option value="Personal">Personal</option>
                       </select>
                     </div>
 
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-zinc-600">Priority</label>
-
                       <select
                         value={priority}
                         onChange={(e) => setPriority(e.target.value)}
                         className="rounded-xl border border-zinc-700/60 bg-black/60 px-3 py-2.5 text-sm outline-none focus:border-purple-500"
                       >
                         <option value="high">🔴 High</option>
-
                         <option value="medium">🟡 Medium</option>
-
                         <option value="low">🟢 Low</option>
                       </select>
                     </div>
@@ -407,7 +488,6 @@ export default function TodoPage() {
                       <label className="text-xs text-zinc-600">
                         Due date & time
                       </label>
-
                       <input
                         type="datetime-local"
                         value={dueAt}
@@ -436,7 +516,6 @@ export default function TodoPage() {
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600">
                   ⌕
                 </span>
-
                 <input
                   type="text"
                   placeholder="Search tasks..."
@@ -445,7 +524,6 @@ export default function TodoPage() {
                   className="w-full rounded-xl border border-zinc-800/60 bg-zinc-900 py-2.5 pl-8 pr-4 text-sm outline-none transition focus:border-purple-500"
                 />
               </div>
-
               <p className="text-xs text-zinc-600">
                 {filteredTodos.length}{" "}
                 {filteredTodos.length === 1 ? "task" : "tasks"}
@@ -456,14 +534,12 @@ export default function TodoPage() {
             {isLoading ? (
               <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-purple-500" />
-
                 <p className="text-sm text-zinc-600">Loading your tasks...</p>
               </div>
             ) : (
               <div className="space-y-2">
                 {filteredTodos.map((todo) => {
                   const due = formatDueDate(todo.dueAt);
-
                   const isFiring =
                     firingIds.current.has(todo.id) &&
                     !dismissedAlarms.has(todo.id);
@@ -517,7 +593,6 @@ export default function TodoPage() {
                           {isFiring && (
                             <span className="mr-1 animate-pulse">⏰</span>
                           )}
-
                           {todo.text}
                         </p>
 
@@ -542,7 +617,6 @@ export default function TodoPage() {
                                 priorities[todo.priority]
                               }`}
                             />
-
                             {todo.priority}
                           </span>
 
@@ -560,16 +634,13 @@ export default function TodoPage() {
                               <span>
                                 {due.isOverdue && !todo.completed ? "⚠" : "🗓"}
                               </span>
-
                               {due.formatted}
-
                               {due.isOverdue && !todo.completed && " · overdue"}
-
                               {due.isToday && !due.isOverdue && " · today"}
                             </span>
                           )}
 
-                          {/* Alarm */}
+                          {/* Alarm badge */}
                           {isFiring && (
                             <span className="animate-pulse rounded-lg bg-red-500/10 px-2.5 py-0.5 text-xs text-red-400">
                               Alarm Active
@@ -600,7 +671,6 @@ export default function TodoPage() {
                             Dismiss
                           </button>
                         )}
-
                         <button
                           onClick={() => deleteTodo(todo.id)}
                           disabled={isDeleting}
@@ -616,9 +686,7 @@ export default function TodoPage() {
                 {filteredTodos.length === 0 && (
                   <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-800 py-24 text-center">
                     <p className="text-3xl">◌</p>
-
                     <p className="text-sm text-zinc-600">No tasks found</p>
-
                     {filter !== "all" && (
                       <button
                         onClick={() => setFilter("all")}
