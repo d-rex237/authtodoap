@@ -6,6 +6,40 @@ export async function GET(request: Request) {
   try {
     const now = new Date();
 
+    // ── 1. Check raw todo count ──────────────────────────────
+    const totalTodos = await db.todo.count();
+
+    // ── 2. Check incomplete todos ────────────────────────────
+    const incompleteTodos = await db.todo.count({
+      where: { completed: false },
+    });
+
+    // ── 3. Check todos with dueAt set ────────────────────────
+    const withDueDate = await db.todo.count({
+      where: { completed: false, dueAt: { not: null } },
+    });
+    // ── 4. Check todos NOT yet reminded ──────────────────────
+    const notReminded = await db.todo.count({
+      where: { completed: false, dueAt: { not: null }, reminded: false },
+    });
+
+    // ── 5. Check todos past due ───────────────────────────────
+    const pastDue = await db.todo.findMany({
+      where: {
+        completed: false,
+        reminded: false,
+        dueAt: { lte: now },
+      },
+      select: {
+        id: true,
+        text: true,
+        dueAt: true,
+        reminded: true,
+        userId: true,
+        user: { select: { email: true, clerkId: true } },
+      },
+    });
+
     console.log("=== CRON RUNNING ===", now.toISOString());
 
     const dueTodos = await db.todo.findMany({
@@ -57,7 +91,15 @@ export async function GET(request: Request) {
 
     console.log(`=== DONE: ${sent} sent, ${failed} failed ===`);
 
-    return NextResponse.json({ sent, failed });
+    return NextResponse.json({
+      serverTime: now.toISOString(),
+      totalTodos,
+      incompleteTodos,
+      withDueDate,
+      notReminded,
+      pastDueCount: pastDue.length,
+      pastDue, // exact records — check dueAt and user.email here
+    });
   } catch (error) {
     console.error("Cron error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
