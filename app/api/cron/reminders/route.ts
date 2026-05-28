@@ -22,6 +22,10 @@ export async function GET(request: Request) {
     const notReminded = await db.todo.count({
       where: { completed: false, dueAt: { not: null }, reminded: false },
     });
+    const allWithDates = await db.todo.findMany({
+      where: { completed: false, dueAt: { not: null } },
+      select: { text: true, dueAt: true },
+    });
 
     // ── 5. Check todos past due ───────────────────────────────
     const pastDue = await db.todo.findMany({
@@ -98,6 +102,7 @@ export async function GET(request: Request) {
       withDueDate,
       notReminded,
       pastDueCount: pastDue.length,
+      actualDueDates: allWithDates,
       pastDue, // exact records — check dueAt and user.email here
     });
   } catch (error) {

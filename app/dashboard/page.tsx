@@ -200,7 +200,12 @@ export default function TodoPage() {
     if (!task.trim()) return;
 
     createTodo(
-      { text: task, priority, category, dueAt: dueAt || undefined },
+      {
+        text: task,
+        priority,
+        category,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
+      },
       {
         onSuccess: () => {
           setTask("");

@@ -23,7 +23,7 @@ export async function sendReminderEmail({
 
   const { data, error } = await resend.emails.send({
     from: "onboarding@resend.dev",
-    to: "rexemily850@gmail.com", // hardcode it
+    to: to, // hardcode it
     subject: `⏰ Reminder: "${taskText}" is due soon`,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0a0a0a;padding:40px;border-radius:20px;border:1px solid #27272a">
